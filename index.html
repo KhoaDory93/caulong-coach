@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cầu Lông Coach</title>
+<meta name="theme-color" content="#0d6b45">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CL Coach">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <button id="back" class="icon-btn" aria-label="Quay lại" hidden>‹</button>
+  <h1 id="title">Cầu Lông Coach</h1>
+  <button id="nav-history" class="icon-btn text">Lịch sử</button>
+</header>
+
+<main>
+  <!-- TRANG CHỦ -->
+  <section id="v-home" class="view">
+    <p class="lead">Chọn động tác, quay hoặc tải video lên để được chấm kỹ thuật và gợi ý cách sửa.</p>
+    <div class="strokes" id="stroke-list" role="radiogroup" aria-label="Động tác"></div>
+    <details class="card tips" id="tips-box">
+      <summary>Cách quay video để chấm chính xác</summary>
+      <ul id="stroke-tips"></ul>
+    </details>
+    <div class="actions">
+      <label class="btn primary big">
+        <input type="file" accept="video/*" capture="environment" id="in-camera" hidden>
+        Quay video
+      </label>
+      <label class="btn big">
+        <input type="file" accept="video/*" id="in-file" hidden>
+        Chọn video có sẵn
+      </label>
+    </div>
+    <button class="link" id="nav-criteria">Xem bộ tiêu chí chấm điểm</button>
+    <p class="fine">Video được xử lý ngay trên điện thoại, không tải lên máy chủ nào.</p>
+  </section>
+
+  <!-- THIẾT LẬP -->
+  <section id="v-setup" class="view" hidden>
+    <div class="stage" id="setup-stage">
+      <video id="vid" playsinline muted preload="auto"></video>
+      <canvas id="pick" class="overlay"></canvas>
+    </div>
+    <div class="scrub">
+      <button class="btn sm" id="play">▶</button>
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Vị trí">
+      <span id="time" class="mono">0.0s</span>
+    </div>
+
+    <div class="card">
+      <div class="row between"><span class="label">Đoạn phân tích</span><b id="trim-label" class="mono"></b></div>
+      <div class="row wrap gap">
+        <button class="btn sm" id="set-start">Bắt đầu tại đây</button>
+        <button class="btn sm" id="set-end">Kết thúc tại đây</button>
+        <button class="btn sm ghost" id="reset-trim">Cả video</button>
+      </div>
+      <div class="field">
+        <span class="label">Tay cầm vợt</span>
+        <div class="seg" id="seg-hand">
+          <button data-v="auto">Tự nhận</button><button data-v="R">Phải</button><button data-v="L">Trái</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Góc quay</span>
+        <div class="seg" id="seg-view">
+          <button data-v="side">Ngang</button><button data-v="front">Trước mặt</button><button data-v="back">Sau lưng</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="step"><b>Chọn người chơi.</b> <span id="pick-msg">Bấm “Tìm người chơi” rồi chạm vào người cần chấm (tại thời điểm bắt đầu).</span></p>
+      <div class="row wrap gap">
+        <button class="btn primary" id="find">Tìm người chơi</button>
+        <button class="btn" id="draw-box">Tự khoanh vùng</button>
+      </div>
+    </div>
+    <button class="btn primary big full" id="analyze" disabled>Phân tích</button>
+  </section>
+
+  <!-- ĐANG XỬ LÝ -->
+  <section id="v-progress" class="view" hidden>
+    <div class="card center">
+      <canvas id="live" width="384" height="384"></canvas>
+      <div class="bar"><i id="bar"></i></div>
+      <p id="prog-msg">Đang chuẩn bị…</p>
+      <button class="btn ghost" id="cancel">Huỷ</button>
+    </div>
+  </section>
+
+  <!-- KẾT QUẢ -->
+  <section id="v-result" class="view" hidden>
+    <div class="score-card card">
+      <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+        <circle cx="60" cy="60" r="52" class="ring-bg"/>
+        <circle cx="60" cy="60" r="52" class="ring-fg" id="ring-fg"/>
+        <text x="60" y="68" text-anchor="middle" id="ring-text">–</text>
+      </svg>
+      <div>
+        <h2 id="res-stroke"></h2>
+        <p id="res-meta" class="muted"></p>
+        <p id="res-sub"></p>
+      </div>
+    </div>
+    <div id="warnings"></div>
+
+    <div id="res-video-wrap">
+      <div class="stage" id="res-stage">
+        <video id="res-vid" playsinline muted preload="auto"></video>
+        <canvas id="overlay" class="overlay passive"></canvas>
+      </div>
+      <div class="scrub">
+        <button class="btn sm" id="res-play">▶</button>
+        <input type="range" id="res-seek" min="0" max="1000" value="0" step="1" aria-label="Vị trí">
+        <div class="seg small" id="seg-speed"><button data-v="0.25">¼×</button><button data-v="0.5">½×</button><button data-v="1">1×</button></div>
+      </div>
+    </div>
+
+    <div class="chips" id="swing-chips"></div>
+    <div class="keyframes" id="keyframes"></div>
+
+    <h3>Ưu tiên cải thiện</h3>
+    <ol id="todo" class="todo"></ol>
+
+    <h3>Đánh giá chi tiết</h3>
+    <div id="crit-list"></div>
+
+    <div class="row wrap gap end-actions">
+      <button class="btn primary" id="again">Phân tích video khác</button>
+    </div>
+  </section>
+
+  <!-- LỊCH SỬ -->
+  <section id="v-history" class="view" hidden>
+    <div id="history-list"></div>
+  </section>
+
+  <!-- BỘ TIÊU CHÍ -->
+  <section id="v-criteria" class="view" hidden>
+    <p class="muted">Bản nháp v0.1, soạn theo nguyên lý huấn luyện phổ biến. Khoảng cách quy đổi theo chiều dài thân (vai → hông) ≈ 50 cm. Mọi ngưỡng có thể chỉnh trong <code>js/criteria.js</code>.</p>
+    <div id="criteria-doc"></div>
+  </section>
+</main>
+
+<div id="toast" role="status" hidden></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
