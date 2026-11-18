@@ -1,5 +1,6 @@
-import { STROKES, VIEWS, fmtValue, STATUS_LABEL } from './criteria.js';
+import { STROKES, VIEWS, fmtValue, STATUS_LABEL, nowText } from './criteria.js';
 import { evaluate, keyTimes } from './analysis.js';
+import { detectHits } from './audio.js';
 import { drawSkeleton, contentRect, fitCanvas } from './draw.js';
 import * as db from './storage.js';
 
@@ -83,6 +84,7 @@ const vid = $('#vid'), pick = $('#pick');
 async function loadVideo(blob, name) {
   if (state.url && state.url !== state.live?.url) URL.revokeObjectURL(state.url);
   state.url = URL.createObjectURL(blob);
+  state.blob = blob;
   state.fileName = name;
   state.people = []; state.target = null; state.drawMode = false;
   state.view = STROKES[state.stroke].defaultView;
@@ -254,16 +256,18 @@ $('#analyze').onclick = async () => {
         if (l) drawSkeleton(live, l.map(q => ({ x: q.x, y: q.y, v: q.visibility ?? 1 })), q => ({ x: q.x * 384, y: q.y * 384 }), { side: state.hand === 'L' ? 'L' : 'R', scale: 1.2 });
       },
     });
+    prog('Đang dò tiếng vợt chạm cầu…', 0.93);
+    const hits = await detectHits(state.blob, t0, t1);
     prog('Đang chấm điểm…', 0.94);
     const opts = { stroke: state.stroke, view: state.view, hand: state.hand };
-    const res = evaluate(frames, opts);
+    const res = evaluate(frames, { ...opts, hits });
     if (res.error) { show('setup', false); toast(res.error, 7000); return; }
     prog('Đang tạo ảnh minh hoạ…', 0.96);
     const keyframes = await makeKeyframes(p, res, t0, t1);
     const rec = {
       id: Date.now().toString(36), date: Date.now(), ...opts,
       side: res.side, sideAuto: res.sideAuto, fileName: state.fileName, t0, t1,
-      score: res.score, summary: res.summary, warnings: res.warnings, quality: res.quality,
+      score: res.score, summary: res.summary, warnings: res.warnings, quality: res.quality, contactMode: res.contactMode,
       swings: res.swings.map(s => ({ t: s.t, weak: s.weak, score: s.score, results: s.results })),
       keyframes,
     };
@@ -329,8 +333,10 @@ function openResult(rec) {
   $('#res-stroke').textContent = S.name;
   const d = new Date(rec.date);
   $('#res-meta').textContent = `${d.toLocaleDateString('vi-VN')} ${d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} · Góc ${VIEWS[rec.view].toLowerCase()} · Tay ${rec.side === 'R' ? 'phải' : 'trái'}${rec.sideAuto ? ' (tự nhận)' : ''}`;
-  const unit = S.event === 'lunge' ? 'lần lên lưới' : 'cú đánh';
-  $('#res-sub').textContent = `Phát hiện ${rec.swings.length} ${unit}. Điểm trên 100, chấm theo bộ tiêu chí v0.1.`;
+  const audio = rec.contactMode === 'audio';
+  const unit = S.event === 'lunge' ? (audio ? 'lần lên lưới chạm cầu' : 'lần lên lưới') : (audio ? 'cú chạm cầu' : 'cú vung vợt');
+  const how = audio ? ' (nhận biết qua tiếng vợt chạm cầu + chuyển động tay)' : '';
+  $('#res-sub').textContent = `Phát hiện ${rec.swings.length} ${unit}${how}. Điểm trên 100, chấm theo bộ tiêu chí v0.1.`;
   $('#warnings').innerHTML = (rec.warnings || []).map(w => `<div class="warn">${esc(w)}</div>`).join('');
 
   const hasVideo = state.live?.recId === rec.id;
@@ -366,22 +372,28 @@ function selectSwing(k) {
     ? todo.map(r => `<li><b>${esc(crit(r.id).name)}</b> — ${esc(crit(r.id).fix)}</li>`).join('')
     : '<li>Không có điểm nào cần ưu tiên — giữ vững phong độ! Hãy thử quay ở góc khác để kiểm tra thêm.</li>';
 
-  $('#crit-list').innerHTML = results.map(r => {
+  // Thứ tự: Cần sửa → Tạm được → Tốt → Không đo được; cùng nhóm thì tiêu chí quan trọng hơn lên trước.
+  const ORDER = { bad: 0, ok: 1, good: 2, na: 3 };
+  const sorted = [...results].sort((a, b) => ORDER[a.status] - ORDER[b.status] || crit(b.id).weight - crit(a.id).weight);
+  $('#crit-list').innerHTML = sorted.map(r => {
     const c = crit(r.id);
-    let meas;
+    let now;
     if (r.status === 'na') {
-      meas = r.reason === 'view'
+      now = r.reason === 'view'
         ? `Không đo được ở góc quay này (cần góc: ${c.views.map(v => VIEWS[v].toLowerCase()).join(', ')}).`
         : 'Không đủ dữ liệu (khớp bị che hoặc ra ngoài khung hình).';
     } else {
-      meas = `Đo được: <b>${fmtValue(c, r.value)}</b>${k < 0 && r.n > 1 ? ` (trung vị · đạt Tốt ${r.nGood}/${r.n} lần)` : ''} · Mục tiêu: ${esc(c.target)}`;
+      now = esc(nowText(c, r));
+      if (k < 0 && r.n > 1) now += `<span class="muted"> · đạt Tốt ${r.nGood}/${r.n} cú</span>`;
     }
     const fix = r.status === 'ok' || r.status === 'bad'
-      ? `<p class="fix"><b>Cách sửa:</b> ${esc(c.fix)}</p><p class="fix"><b>Bài tập:</b> ${esc(c.drill)}</p>` : '';
-    return `<div class="crit ${r.status}">
-      <div class="crit-head"><b>${esc(c.name)}</b><span class="badge ${r.status}">${STATUS_LABEL[r.status]}</span></div>
-      <p class="meas">${meas}</p>
-      <p class="why">${esc(c.why)}</p>${fix}</div>`;
+      ? `<p><b>Cách sửa:</b> ${esc(c.fix)}</p>` : '';
+    return `<details class="crit ${r.status}">
+      <summary class="crit-head"><b>${esc(c.name)}</b><span class="badge ${r.status}">${STATUS_LABEL[r.status]}</span></summary>
+      <div class="crit-body">
+        <p><b>Mục tiêu:</b> ${esc(c.target)}</p>
+        <p><b>Hiện trạng:</b> ${now}</p>${fix}
+      </div></details>`;
   }).join('');
 
   if (state.live?.recId === rec.id && k >= 0) {
