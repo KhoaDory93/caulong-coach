@@ -106,11 +106,33 @@ function pickPeaks(cands, minGap) {
   return chosen.sort((a, b) => a.t - b.t);
 }
 
-function detectSwings(ctx, S) {
+// Chỉ giữ những cú vung có tiếng vợt chạm cầu: với mỗi tiếng "tách", tìm lúc cổ tay vợt
+// nhanh nhất trong khoảng 0,22 s trước đến 0,1 s sau tiếng đó.
+function detectSwings(ctx, S, hits) {
   const { speed, t, n } = ctx;
   const valid = speed.filter(v => v != null);
-  if (!valid.length) return [];
+  if (!valid.length) return { events: [], mode: 'none' };
   const max = Math.max(...valid);
+  if (hits && hits.length) {
+    const ev = [];
+    for (const h of hits) {
+      let best = -1, bv = 0;
+      for (let i = 0; i < n; i++) {
+        const dt = t[i] - h.t;
+        if (dt < -0.22 || dt > 0.1 || speed[i] == null) continue;
+        if (speed[i] > bv) { bv = speed[i]; best = i; }
+      }
+      if (best >= 0 && bv >= S.minSpeed * 0.6 && bv >= 0.25 * max) ev.push({ i: best, t: t[best], w: bv, hitT: h.t });
+    }
+    const picked = pickPeaks(ev, S.minGap);
+    if (picked.length) return { events: picked, mode: 'audio' };
+    return { events: motionSwings(ctx, S, max), mode: 'motion-nomatch' };
+  }
+  return { events: motionSwings(ctx, S, max), mode: hits === null ? 'motion-noaudio' : 'motion-nomatch' };
+}
+
+function motionSwings(ctx, S, max) {
+  const { speed, t, n } = ctx;
   const thr = Math.max(S.minSpeed, 0.4 * max);
   const cands = [];
   for (let i = 1; i < n - 1; i++) {
@@ -124,6 +146,16 @@ function detectSwings(ctx, S) {
     ev = [{ i, t: t[i], w: max, weak: true }];
   }
   return ev;
+}
+
+// Lunge: chỉ giữ những lần có tiếng chạm cầu trong khoảng ±0,35 s.
+function detectLungesWithHits(ctx, S, hits) {
+  const all = detectLunges(ctx, S);
+  if (hits === null) return { events: all, mode: 'motion-noaudio' };
+  const kept = all.filter(e => !e.weak && hits.some(h => Math.abs(h.t - e.t) <= 0.35))
+    .map(e => ({ ...e, hitT: hits.reduce((b, h) => (Math.abs(h.t - e.t) < Math.abs(b - e.t) ? h.t : b), Infinity) }));
+  if (kept.length) return { events: kept, mode: 'audio' };
+  return { events: all, mode: 'motion-nomatch' };
 }
 
 function detectLunges(ctx, S) {
@@ -219,7 +251,7 @@ const M = {
 };
 
 // ---------- đánh giá tổng ----------
-export function evaluate(rawFrames, { stroke, view, hand }) {
+export function evaluate(rawFrames, { stroke, view, hand, hits }) {
   const S = STROKES[stroke];
   const frames = preprocess(rawFrames);
   const detected = frames.filter(f => f.kp).length;
@@ -231,7 +263,9 @@ export function evaluate(rawFrames, { stroke, view, hand }) {
   const ctx = makeCtx(frames, side);
   if (!ctx.U) return { error: 'Không xác định được vai và hông của người chơi.', frames };
 
-  const events = S.event === 'lunge' ? detectLunges(ctx, S) : detectSwings(ctx, S);
+  const det = S.event === 'lunge' ? detectLungesWithHits(ctx, S, hits) : detectSwings(ctx, S, hits);
+  const events = det.events;
+  const contactMode = det.mode;
   const swings = events.map(ev => {
     const results = S.criteria.map(c => {
       if (!c.views.includes(view)) return { id: c.id, value: null, status: 'na', score: null, reason: 'view' };
@@ -250,10 +284,10 @@ export function evaluate(rawFrames, { stroke, view, hand }) {
       const any = swings[0]?.results.find(r => r.id === c.id);
       return { id: c.id, value: null, status: 'na', score: null, reason: any?.reason || 'missing' };
     }
-    // điểm = trung bình điểm từng lần; giá trị hiển thị = trung vị
-    const score = Math.round(rs.reduce((a, r) => a + r.score, 0) / rs.length);
-    const status = score >= 80 ? 'good' : score >= 50 ? 'ok' : 'bad';
-    return { id: c.id, value: median(rs.map(r => r.value)), status, score, n: rs.length, nGood: rs.filter(r => r.status === 'good').length };
+    // giá trị tổng hợp = trung vị các lần; đánh giá theo đúng giá trị đó để nhận xét nhất quán
+    const vs = rs.map(r => r.value).sort((a, b) => a - b), m = vs.length >> 1;
+    const value = vs.length % 2 ? vs[m] : (vs[m - 1] + vs[m]) / 2;
+    return { id: c.id, value, ...gradeOf(c, value), n: rs.length, nGood: rs.filter(r => r.status === 'good').length };
   });
   const sc = swings.map(s => s.score).filter(v => v != null);
   const score = sc.length ? Math.round(sc.reduce((a, b) => a + b, 0) / sc.length) : null;
@@ -270,11 +304,13 @@ export function evaluate(rawFrames, { stroke, view, hand }) {
   if (personPx && personPx < 250) warnings.push(`Người chơi trong video khá nhỏ (cao ~${Math.round(personPx)} điểm ảnh). Kết quả có thể kém chính xác — hãy quay gần hơn để người chơi chiếm ≥ 1/2 chiều cao khung hình.`);
   if (detected < frames.length * 0.8) warnings.push(`Chỉ nhận diện được người chơi ở ${Math.round(100 * detected / frames.length)}% số khung hình.`);
   if (vis != null && vis < 0.6) warnings.push('Nhiều khớp bị che khuất hoặc mờ — thử quay ở nơi sáng hơn, tránh bị người khác che.');
+  if (contactMode === 'motion-noaudio') warnings.push('Video không có âm thanh nên không xác định chắc lúc vợt chạm cầu — kết quả có thể tính cả động tác vung không chạm cầu. Hãy quay video có tiếng.');
+  if (contactMode === 'motion-nomatch') warnings.push('Không nghe rõ tiếng vợt chạm cầu của người chơi — đã tính theo chuyển động tay, có thể gồm cả động tác vung không chạm cầu.');
   if (swings.some(s => s.weak)) warnings.push(S.event === 'lunge' ? 'Không thấy bước lunge rõ ràng — đã lấy thời điểm gối gập nhiều nhất.' : 'Không thấy cú vung rõ ràng — đã lấy thời điểm cổ tay nhanh nhất.');
   if (!S.criteria.some(c => c.views.includes(view)) || summary.filter(s => s.reason === 'view').length >= S.criteria.length / 2)
     warnings.push(`Góc quay này chỉ đo được một phần tiêu chí. Góc khuyên dùng cho ${S.name}: ${S.defaultView === 'side' ? 'ngang (bên hông)' : 'trước mặt hoặc sau lưng'}.`);
 
-  return { side, sideAuto, U: ctx.U, swings, summary, score, quality: { personPx, vis, detected, total: frames.length }, warnings, frames };
+  return { side, sideAuto, U: ctx.U, swings, contactMode, nHits: hits ? hits.length : null, summary, score, quality: { personPx, vis, detected, total: frames.length }, warnings, frames };
 }
 
 function weighted(S, results) {
