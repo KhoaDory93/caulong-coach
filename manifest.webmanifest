@@ -1,0 +1,14 @@
+{
+  "name": "Cầu Lông Coach",
+  "short_name": "CL Coach",
+  "description": "Chấm kỹ thuật cầu lông từ video, chạy ngay trên điện thoại.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f6f4",
+  "theme_color": "#0d6b45",
+  "lang": "vi",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
