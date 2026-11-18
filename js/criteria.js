@@ -277,4 +277,42 @@ export function fmtValue(c, v) {
 // Các số đo là độ cao tương đối (so với vai/đầu/hông) — hiển thị dấu +/-.
 const SIGNED = new Set(['c_offarm', 'c_elbow_up', 'c_contact_high', 'c_follow', 'n_hand_high', 'd_ready', 'd_contact', 'd_elbow']);
 
-export const STATUS_LABEL = { good: 'Tốt', ok: 'Tạm được', bad: 'Cần sửa', na: 'Không đo được' };
+// Nhận xét "Hiện trạng": [khi đạt Tốt, khi chưa đạt]; {v} = số đo.
+const NOW = {
+  c_offarm: ['Tay không cầm vợt đã nâng cao ({v} so với vai)', 'Tay không cầm vợt đang đặt thấp ({v} so với vai)'],
+  c_elbow_up: ['Khuỷu tay vợt đã nâng ngang vai ({v} so với vai)', 'Khuỷu tay vợt còn thấp ({v} so với vai)'],
+  c_contact_high: ['Điểm chạm cầu cao (cổ tay {v} so với đầu)', 'Điểm chạm cầu còn thấp (cổ tay {v} so với đầu)'],
+  c_extend: ['Tay duỗi gần thẳng khi chạm cầu (khuỷu {v})', 'Tay còn gập khi chạm cầu (khuỷu {v})'],
+  c_rotation: ['Vai xoay tốt (biên độ {v})', 'Vai xoay ít (biên độ {v})'],
+  c_follow: ['Vợt vung theo trọn vẹn (cổ tay về {v} so với vai)', 'Vợt dừng sớm sau khi đánh (cổ tay chỉ về {v} so với vai)'],
+  c_knee: ['Có chùng gối lấy đà (gối {v})', 'Gối gần như thẳng khi chuẩn bị (gối {v})'],
+  n_lunge: ['Bước lunge sâu (gối trước {v})', 'Bước lunge còn nông (gối trước {v})'],
+  n_back_leg: ['Chân sau giữ thẳng (gối sau {v})', 'Chân sau gập nhiều (gối sau {v})'],
+  n_shin: ['Gối trước nằm trên cổ chân (ống chân nghiêng {v})', 'Gối trước đổ về trước (ống chân nghiêng {v})'],
+  n_hand_high: ['Đón cầu ở điểm cao (cổ tay {v} so với hông)', 'Đón cầu thấp (cổ tay {v} so với hông)'],
+  n_arm_reach: ['Tay vợt vươn tốt (khuỷu {v})', 'Tay vợt co sát người (khuỷu {v})'],
+  n_trunk: ['Thân trên thẳng (nghiêng {v})', 'Thân trên gập về trước (nghiêng {v})'],
+  n_recover: ['Thu hồi về nhanh (lùi được {v} quãng lunge)', 'Thu hồi chậm (mới lùi {v} quãng lunge)'],
+  d_stance: ['Chân đứng rộng (hai bàn chân cách {v})', 'Chân đứng hẹp (hai bàn chân cách {v})'],
+  d_knee: ['Trọng tâm thấp (gối {v})', 'Đứng khá thẳng, trọng tâm cao (gối {v})'],
+  d_ready: ['Vợt sẵn sàng trước ngực (cổ tay {v} so với hông)', 'Vợt để thấp khi chờ cầu (cổ tay {v} so với hông)'],
+  d_elbow: ['Khuỷu tay ở tầm ngực ({v} so với vai)', 'Khuỷu tay hạ thấp ({v} so với vai)'],
+  d_compact: ['Vung vợt gọn (quãng cổ tay {v})', 'Vung vợt dài (quãng cổ tay {v})'],
+  d_recover: ['Hồi vợt nhanh (sau {v})', 'Hồi vợt chậm (sau {v})'],
+  d_balance: ['Thân trên vững (nghiêng {v})', 'Thân trên nghiêng nhiều (nghiêng {v})'],
+};
+
+export function nowText(c, r) {
+  if (r.value == null) return null;
+  const v = fmtValue(c, r.value);
+  if (c.id === 'd_contact') {
+    if (r.value < c.good[0]) return `Điểm chạm cầu thấp hơn vai (cổ tay ${v} so với vai)`;
+    if (r.value > c.good[1]) return `Điểm chạm cầu cao hơn vai nhiều (cổ tay ${v} so với vai)`;
+    return `Điểm chạm cầu ngang vai (cổ tay ${v} so với vai)`;
+  }
+  const t = NOW[c.id];
+  if (!t) return `Đo được ${v}`;
+  return t[r.status === 'good' ? 0 : 1].replace('{v}', v);
+}
+
+export const STATUS_LABEL ={ good: 'Tốt', ok: 'Tạm được', bad: 'Cần sửa', na: 'Không đo được' };
