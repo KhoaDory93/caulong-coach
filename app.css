@@ -132,8 +132,13 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 6px; font-
 .crit.good { border-left-color: var(--good); }
 .crit.ok { border-left-color: var(--ok); }
 .crit.bad { border-left-color: var(--bad); }
-.crit-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
-.crit-head b { font-size: 16px; }
+.crit-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; cursor: pointer; list-style: none; -webkit-tap-highlight-color: transparent; }
+.crit-head::-webkit-details-marker { display: none; }
+.crit-head b { font-size: 16px; flex: 1; }
+.crit-head::after { content: "›"; font-size: 22px; line-height: 1; color: var(--muted); transition: transform .15s; }
+.crit[open] .crit-head::after { transform: rotate(90deg); }
+.crit-body { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 14.5px; }
+.crit-body p { margin: 6px 0 0; }
 .badge { flex: none; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 99px; color: #fff; background: var(--na); }
 .badge.good { background: var(--good); } .badge.ok { background: var(--ok); } .badge.bad { background: var(--bad); }
 @media (prefers-color-scheme: dark) { .badge { color: #0b1210; } }
